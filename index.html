@@ -1,0 +1,663 @@
+<html>
+    <head>
+    <title>基于特征线段的图像变形动画</title>
+    <!-- 生产环境版本，优化了尺寸和速度 -->
+    <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@4.x/css/materialdesignicons.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    </head>
+    <body>
+        <div id="app">
+            <v-app>
+                <v-main class="gradientBG">
+                    <v-container elevation-4 fill-height rounded style="background-color:rgba(255, 255, 255, 0.76)">
+                        <v-row dense>
+                            <v-col>
+                                <p class="text-center text-h4">基于特征线段的图像变形动画</p>
+                            </v-col>
+                        </v-row>
+                        <v-row dense>
+                            <v-col>
+                            <v-alert
+                            dense
+                            transition="scale-transition"
+                            type="info"
+                            v-model="tip_on_top.show"
+                            dismissible
+                            block
+                            >{{ tip_on_top.message }}</v-alert>
+                        </v-col>
+                        </v-row>
+                        <v-row v-show="!confirmed">
+                            <v-col>
+                                <v-form ref="upload_form" lazy-validation>
+                                    <v-file-input
+                                      accept="image/*"
+                                      label="源图像"
+                                      v-model="source_img"
+                                      :rules="upload_rules"
+                                      required
+                                    ></v-file-input>
+                                    <v-file-input
+                                      accept="image/*"
+                                      label="目标图像"
+                                      v-model="target_img"
+                                      :rules="upload_rules"
+                                      required
+                                    ></v-file-input>
+                                </v-form>
+                            </v-col>
+                        </v-row>
+                        <v-row v-show="confirmed" dense justify="center">
+                            <v-col class="col-xs-12 col-sm-6">
+                                <v-btn color="red" block @click="restart">
+                                    重传图片
+                                </v-btn>
+                            </v-col>
+                        </v-row>
+                        <v-row justify="center">
+                            <v-col class="col-12 col-sm-6 col-lg-4">
+                            <v-card elevation="4" color="#add5e6">
+                                <v-card-text class="text-center">
+                                    <p class="text-h6">源图像</p>
+                                <div>
+                                <p v-show="!source_img" class="text-subtitle">请上传图片</p>
+                                <canvas v-show="source_img" id="source_canvas">
+                                </canvas>
+                                </div>
+                                </v-card-text>
+                            </v-card>
+                            </v-col>
+                            <v-col class="col-12 col-sm-6 col-lg-4">
+                                <v-card elevation="4" color="#add5e6">
+                                    <v-card-text class="text-center">
+                                        <p class="text-h6">目标图像</p>
+                                    <div>
+                                    <p v-show="!target_img" class="text-subtitle">请上传图片</p>
+                                    <canvas v-show="target_img" id="target_canvas">
+                                    </canvas>
+                                    </div>
+                                    </v-card-text>
+                                </v-card>
+                            </v-col>
+                        </v-row>
+                        <v-row v-show="!confirmed" justify="center">
+                            <v-col class="col-xs-12 col-sm-6">
+                                <v-btn block @click="check" color="green">
+                                    下一步
+                                </v-btn>
+                            </v-col>
+                        </v-row>
+                        <v-row dense>
+                            <v-col>
+                                <v-alert
+                                dense
+                                transition="scale-transition"
+                                type="info"
+                                v-show="add_line_enable.source_canvas || add_line_enable.target_canvas"
+                                block
+                                >请分别在源图像和目标图像上画出对应的一组有向线段。<br/>操作提示：鼠标左键按下画起点，松开画终点。</v-alert>
+                            </v-col>
+                        </v-row>
+                        <v-row dense v-show="confirmed" justify="center">
+                            <v-col class="col-xs-12 col-sm-6">
+                                <v-btn color="primary" :disabled="add_line_enable.source_canvas || add_line_enable.target_canvas" block @click="add_line">
+                                    添加一组特征线段
+                                </v-btn>
+                            </v-col>
+                            <v-col class="col-xs-12 col-sm-6">
+                                <v-btn color="red" block @click="clear_lines">
+                                    清空线段
+                                </v-btn>
+                            </v-col>
+                        </v-row>
+                        <v-container v-show="confirmed && source_lines.length>0">
+                            <v-row justify="center">
+                                <v-col cols=12>
+                                    <v-simple-table>
+                                        <template>
+                                        <thead>
+                                            <tr>
+                                            <th class="text-left">
+                                                编号
+                                            </th>
+                                            <th class="text-left">
+                                                颜色
+                                            </th>
+                                            <th class="text-left">
+                                                源图像坐标
+                                            </th>
+                                            <th class="text-left">
+                                                目标图像坐标
+                                            </th>
+                                            </tr>
+                                        </thead>
+                                        
+                                        <tbody>
+                                            <tr
+                                            v-for="(source_line, sl_index) in source_lines"
+                                            :key="sl_index"
+                                            >
+                                            <td>{{ sl_index+1 }}</td>
+                                            <td :style='"background:" + source_line.color'>{{source_line.color}}</td>
+                                            <td>({{ source_line.start.x}}, {{ source_line.start.y}})->({{ source_line.end.x}}, {{ source_line.end.y}})</td>
+                                            <td>({{ target_lines[sl_index].start.x}}, {{ target_lines[sl_index].start.y}})->({{ target_lines[sl_index].end.x}}, {{ target_lines[sl_index].end.y}})</td>
+                                            <td>
+                                            </tr>
+                                        </tbody>
+                                        </template>
+                                    </v-simple-table>
+                                    </v-col>
+                                    </v-row>
+                                    <v-row>
+                                    <v-col>
+                                <v-form ref="line_form">
+                                    <v-card dense>
+                                        <v-card-text>
+                                            <div>
+                                                <v-img
+                                                max-width=600
+                                                src="./img/ppt.jpg"
+                                                ></v-img>
+                                            </div>
+                                            <strong>参数说明：</strong><br/>
+                                            若a接近于0，则当dis→0时，权因子接近∞，线段上的像素可精确映射。当a取较大值时，映射将变得光滑。 <br/>
+                                            参数b决定了随着距离dis的变大，不同线段影响力的减弱程度。若b等于0，则每个像素受所有直线同等的影响。b的取值一般为[0.5, 2]。 <br/>
+                                            参数c决定了线段长度对映射的影响。若c =0，则长短直线的地位等效；若c =1，则长线段比短线段有更大的权因子； c的取值范围一般为[0,1]。 <br/>
+                                        </v-card-text>
+                                        <v-container>
+                                        <v-row>
+                                            <v-col>
+                                                <v-text-field
+                                                v-model.number="params.a" 
+                                                type="number"
+                                                :counter="8"
+                                                :rules="numRules"
+                                                label="a"
+                                                required
+                                                ></v-text-field>
+                                                <v-text-field
+                                                v-model.number="params.b" 
+                                                type="number"
+                                                :counter="5"
+                                                :rules="numRulesAllowZero"
+                                                label="b"
+                                                required
+                                                ></v-text-field>
+                                                <v-text-field
+                                                v-model.number="params.c" 
+                                                type="number"
+                                                :counter="5"
+                                                :rules="numRulesAllowZero"
+                                                label="c"
+                                                required
+                                                ></v-text-field>
+                                            </v-col>
+                                        </v-row>
+                                        <v-row>
+                                            <v-col>
+                                                <v-text-field
+                                                v-model.number="generate_num" 
+                                                type="number"
+                                                :counter="5"
+                                                :rules="numRulesGreaterThan3"
+                                                label="输出图片数量"
+                                                required
+                                                ></v-text-field>
+                                            </v-col>
+                                        </v-row>
+                                        </v-container>
+                                    </v-card>
+                                </v-form>
+                                </v-col>
+                            </v-row>
+                            <v-row justify="center">
+                                <v-col class="col-xs-12 col-sm-6">
+                                    <v-btn color="green" block @click="compute_images">
+                                        生成变形动画
+                                    </v-btn>
+                                </v-col>
+                            </v-row>
+                            <v-row v-show="processing">
+                                <v-row dense>
+                                    <v-col cols=12>
+                                        <v-progress-linear
+                                        :value="progress_in_total"
+                                        height="25"
+                                        >
+                                        <strong>{{ Math.ceil(progress_in_total) }}%</strong>
+                                        </v-progress-linear>
+                                    </v-col>
+                                </v-row>
+                            </v-row>
+                            <br/>
+                            <v-card v-show="completed">
+                                <v-container>
+                                    <v-row justify="center">
+                                        <v-col>
+                                            <v-text-field label="fps" v-model="fps">
+                                            </v-text-field>
+                                        </v-col>
+                                        <v-col>
+                                            <v-text-field
+                                            v-model.number="play_times" 
+                                            type="number"
+                                            :counter="5"
+                                            :rules="numRules"
+                                            label="播放次数"
+                                            required
+                                            ></v-text-field>
+                                        </v-col>
+                                        <v-col>
+                                            <v-btn dark block :color='playing ? "balck" : "primary"' @click="play_button">
+                                                {{playing ? '暂停' : '播放'}}
+                                            </v-btn>
+                                        </v-col>
+                                    </v-row>
+                                    <v-row justify="center">
+                                        <v-col cols=12>
+                                            <div class="text-center">
+                                                <canvas id="output_canvas">
+                                                </canvas>
+                                            </div>
+                                        </v-col>
+                                    </v-row>
+                                </v-container>
+                            </v-card>
+                        </v-container>
+                    </v-container>
+                </v-main>
+            </v-app>
+        </div>
+    </body>
+</html>
+
+<script type="text/javascript">
+var app = new Vue({
+  el: '#app',
+  vuetify: new Vuetify(),
+  data: {
+    source_img: null,
+    target_img: null,
+    add_line_enable: {source_canvas: false, target_canvas: false},
+    canvas_selected: {source_canvas: false, target_canvas: false},
+    current_line: {
+        start: {x: 0, y: 0},
+        end: {x: 0, y: 0},
+        color: "#ffffff"
+    },
+    params: {
+        a: 0.0001,
+        b: 1,
+        c: 0.5
+    },
+    line_group: {
+        source_canvas: null,
+        target_canvas: null
+    },
+    image_data_copy: {
+        source_canvas: null,
+        target_canvas: null
+    },
+    //生成的中间图像数量
+    generate_num: 24,
+    fps: 24,
+    source_lines: [],
+    target_lines: [],
+    generated_images: [],
+    current_frame: 0,
+    progress_in_total: 0,
+    playing: false,
+    confirmed: false,
+    processing: false,
+    completed: false,
+    clear_animation: false,
+    play_times: 10,
+    played_times: 0,
+    tip_on_top: {show: false, message: ""},
+    upload_rules: [v => !!v || '请上传图片'],
+    numRules: [
+                v => !!v || '不能为空且只允许输入大于0的数字',
+                v => !v || v>0 || '输入的数字需要大于0',
+    ],
+    numRulesAllowZero: [v => (!isNaN(parseFloat(v)) && v >= 0 && v <= 999) || '输入的数字需要大于等于0'],
+    numRulesGreaterThan3: [
+                v => !!v || '不能为空且只允许输入大于3的数字',
+                v => !v || v>=3 || '输入的数字需要大于等于3',
+    ],
+  },
+  methods: {
+    initCanvas(id) {
+      let canvas = document.getElementById(id)
+      canvas.width = canvas.parentNode.clientWidth
+      canvas.height = canvas.parentNode.clientHeight
+      canvas.onmousedown = this.canvas_mousedown
+      canvas.onmouseup = this.canvas_mouseup
+      let ctx = canvas.getContext('2d')
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      return canvas
+    },
+    check(){
+        if(this.$refs.upload_form.validate()){
+            this.tip_on_top.show=false
+            this.confirmed = true
+            this.show_line_tip()            
+        }
+    },
+    //------------------------------------工具
+    //这部分了参考网上的代码
+    //随机十六进制颜色
+    randomHexColor() {
+        return '#' + ('00000' + (Math.random() * 0x1000000 << 0).toString(16)).substr(-6)
+    },
+    //自定义对象push到数组里是浅拷贝
+    //深拷贝
+    deepCopy(obj) {
+        var newobj = obj.constructor === Array ? [] : {}
+        if (typeof obj !== 'object') {
+            return obj
+        } else {
+        for (var i in obj) {
+            if (typeof obj[i] === 'object'){ 
+            newobj[i] = this.deepCopy(obj[i])
+            }else{
+                newobj[i] = obj[i]
+                }
+            }
+        }
+        return newobj
+    },
+    render_img(src, canvas){
+        let image = new Image()
+        // 绑定 load 事件处理器，加载完成后执行
+        image.onload = function(){
+            if(image.width > canvas.width) {
+                image.height *= canvas.width / image.width;
+                image.width = canvas.width;
+            }else{
+                canvas.width = image.width
+                canvas.height = image.height
+            }
+            canvas.height = image.height
+            let ctx = canvas.getContext("2d");
+            ctx.fillStyle = "#ffffff"
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            ctx.drawImage(image, 0, 0, image.width, image.height);
+        }
+        image.src = src
+    },
+    draw_line(context, line){
+        this.drawArrow(context, line.start.x, line.start.y, line.end.x, line.end.y, line.color, 3, 30, 10)
+    },
+    //画箭头，参考https://blog.csdn.net/chelen_jak/article/details/80494378
+    drawArrow(ctx, fromX, fromY, toX, toY, color, width, theta, headlen) {
+        theta = typeof(theta) != 'undefined' ? theta : 30;
+        headlen = typeof(theta) != 'undefined' ? headlen : 10;
+        width = typeof(width) != 'undefined' ? width : 1;
+        color = typeof(color) != 'color' ? color : '#000';
+        // 计算各角度和对应的P2,P3坐标
+        let angle = Math.atan2(fromY - toY, fromX - toX) * 180 / Math.PI,
+            angle1 = (angle + theta) * Math.PI / 180,
+            angle2 = (angle - theta) * Math.PI / 180,
+            topX = headlen * Math.cos(angle1),
+            topY = headlen * Math.sin(angle1),
+            botX = headlen * Math.cos(angle2),
+            botY = headlen * Math.sin(angle2);
+
+        ctx.save();
+        ctx.beginPath();
+        let arrowX = fromX - topX,
+            arrowY = fromY - topY;
+        ctx.moveTo(arrowX, arrowY);
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        arrowX = toX + topX;
+        arrowY = toY + topY;
+        ctx.moveTo(arrowX, arrowY);
+        ctx.lineTo(toX, toY);
+        arrowX = toX + botX;
+        arrowY = toY + botY;
+        ctx.lineTo(arrowX, arrowY);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.stroke();
+        ctx.restore();
+    },
+    add_line(){
+        if(this.source_lines.length == 0){
+            this.image_data_copy.source_canvas = this.source_ctx.getImageData(0, 0, this.source_canvas.width, this.source_canvas.height)
+            this.image_data_copy.target_canvas = this.target_ctx.getImageData(0, 0, this.target_canvas.width, this.target_canvas.height)
+        }
+        this.add_line_enable.source_canvas = true
+        this.add_line_enable.target_canvas = true
+    },
+    clear_lines(){
+        this.source_lines = []
+        this.target_lines = []
+        this.add_line_enable.source_canvas = false
+        this.add_line_enable.target_canvas = false
+        this.source_ctx.putImageData(this.image_data_copy.source_canvas, 0, 0)
+        this.target_ctx.putImageData(this.image_data_copy.target_canvas, 0, 0)
+    },
+    draw_point(context, point){
+        context.fillStyle="#0000FF"
+        context.beginPath()
+        context.arc(point.x,point.y,4,0,Math.PI*2,true)
+        context.closePath()
+        context.fill()
+    },
+    stop_animate(){
+        if(this.myReq){
+        this.clear_animation = true
+        }
+    },
+    play_button(){
+        this.playing=!this.playing
+        this.played_times = 0
+    },
+    restart(){
+        this.fps= 24
+        this.source_lines= []
+        this.target_lines= []
+        this.generated_images= []
+        this.current_frame= 0
+        this.progress_in_total= 0
+        this.playing= false
+        this.confirmed= false
+        this.processing= false
+        this.completed= false
+        this.stop_animate()
+        this.clear_lines()
+        this.show_upload_tip()
+    },
+    animate(){
+        if(window.requestAnimationFrame){
+            if(this.clear_animation){
+                cancelAnimationFrame(this.myReq)
+                this.myReq = null
+                this.clear_animation = false
+            }
+            this.myReq = requestAnimationFrame(this.animate)
+            this.now = Date.now();
+            let delta = this.now - this.then;
+            if (delta > this.interval) {
+                if(!this.playing){
+                    return
+                }
+                this.then = this.now - (delta % this.interval);
+                this.current_frame = this.current_frame % this.generate_num
+                this.render_output()
+                this.current_frame++
+                if(this.current_frame==1){
+                    this.played_times ++
+                    if(this.played_times >= this.play_times){
+                        this.playing = false
+                    }
+                }
+    　　    }
+        }else{
+            // setTimeout(this.animate, this.interval);
+            // this.current_frame = this.current_frame % (this.generate_num - 1)
+            // this.render_output()
+            // this.current_frame++
+            alert("该浏览器暂时不支持这个页面的动画播放")
+        }
+    },
+    windowToCanvas(x, y, canvas) {
+        let bbox = canvas.getBoundingClientRect();
+        return {
+            x : Math.round(x - bbox.left),
+            y : Math.round(y - bbox.top)
+        };
+    },
+    canvas_mouseup(e){
+        if(!this.add_line_enable[e.target.id]){
+            return
+        }
+        if(!this.canvas_selected[e.target.id]){
+            return
+        }
+        this.canvas_selected[e.target.id] = false
+        this.add_line_enable[e.target.id] = false
+        let point = this.windowToCanvas(e.clientX, e.clientY, e.target)
+        this.current_line.end = point
+        this.line_group[e.target.id] = this.deepCopy(this.current_line)
+        if(this.line_group.source_canvas && this.line_group.target_canvas){
+            this.source_lines.push(this.deepCopy(this.line_group.source_canvas))
+            this.target_lines.push(this.deepCopy(this.line_group.target_canvas))
+            this.line_group.source_canvas = null
+            this.line_group.target_canvas = null
+        }
+
+        this.draw_line(e.target.getContext("2d"), this.current_line)
+        e.preventDefault()
+    },
+    canvas_mousedown(e){
+        if(!this.add_line_enable[e.target.id]){
+            return
+        }
+        if(this.add_line_enable.source_canvas && this.add_line_enable.target_canvas){
+            this.current_line.color = this.randomHexColor()
+        }
+        this.canvas_selected[e.target.id] = true
+        let point = this.windowToCanvas(e.clientX, e.clientY, e.target)
+        this.current_line.start = point
+        this.draw_point(e.target.getContext("2d"), point)
+        e.preventDefault()
+    },
+    render_output(){
+        this.output_ctx.putImageData(this.generated_images[this.current_frame], 0, 0) 
+    },
+    show_upload_tip(){
+        this.tip_on_top.message = "上传图片后点击下一步添加特征线段~"
+        this.tip_on_top.show = true
+    },
+    show_line_tip(){
+        this.tip_on_top.message = "请点击图片下方的“添加一组特征线段”，点击后分别在源图像与目标图像画一条线段，画完后可以在按钮下面调整线段的a、b和c这三个参数，线段添加完毕后点击“生成变形动画”，等待处理完毕后即可看到最终动画~"
+        this.tip_on_top.show = true
+    },
+    worker_message_listner(e){
+        if(e.data.code == "ready"){
+            this.processing = true
+        }
+        if(e.data.code == "progress_in_total"){
+            this.progress_in_total = e.data.message
+        }
+        if(e.data.code == "completed"){
+            this.generated_images = e.data.message
+            this.processing = false
+            this.completed = true
+            this.playing = true
+            this.animate()
+        }
+    },
+    compute_images(){
+        if(!this.$refs.line_form.validate()){
+            return
+        }
+        this.stop_animate()
+        this.progress_in_total = 0
+        this.completed = false
+        this.processing = true
+        this.output_canvas.height = this.source_canvas.height > this.target_canvas.height ? this.source_canvas.height : this.target_canvas.height
+        this.output_canvas.width = this.source_canvas.width
+        this.output_ctx.fillStyle = "#ffffff"
+        this.output_ctx.fillRect(0, 0, this.output_canvas.width, this.output_canvas.height)
+        /*
+        目前这个页面写的基于特征线段图像变形的算法计算量比较大（时间紧也还没做很多性能优化），又由于js是单线程的，执行算法时会阻塞页面的更新，会让用户觉得页面卡住了，所以用web worker开启一个线程来负责计算。
+        */
+        let url = './js/morph_img.js'
+        let worker = new Worker(url);
+        worker.onmessage = this.worker_message_listner
+        let data_to_be_processed = {
+            'code': 'process data',
+            'generate_num': this.generate_num,
+            'source_lines': this.source_lines,
+            'target_lines': this.target_lines,
+            'source_img': this.image_data_copy.source_canvas,
+            'target_img': this.image_data_copy.target_canvas,
+            'output_img': this.output_canvas.getContext('2d').createImageData(this.output_canvas.width, this.output_canvas.height),
+            'params': this.params
+        }
+        worker.postMessage({"code": "process", "message": data_to_be_processed})
+    },
+  },
+  mounted(){
+    this.source_canvas = this.initCanvas("source_canvas")
+    this.source_ctx = this.source_canvas.getContext("2d")
+    this.target_canvas = this.initCanvas("target_canvas")
+    this.target_ctx = this.target_canvas.getContext("2d")
+    this.output_canvas = this.initCanvas("output_canvas")
+    this.output_ctx = this.output_canvas.getContext("2d")
+    let that = this
+    this.myReq = null
+    this.show_upload_tip()
+    //*****************
+    //控制动画事件相关的参数，参考自https://www.cnblogs.com/kenkofox/p/3849067.html
+    this.now = null
+    this.then = Date.now()
+    this.interval = 1000/this.fps
+    //*****************
+  },
+  beforeDestroy(){
+    cancelAnimationFrame(this.myReq)
+  },
+  watch: {
+    source_img(newImg){
+        if(newImg){
+            let reader = new FileReader()
+            let that = this
+            reader.onloadend = function(e) { 
+                that.render_img(e.target.result, that.source_canvas)
+            }
+            reader.readAsDataURL(newImg)
+        }
+    },
+    target_img(newImg){
+        if(newImg){
+            let reader = new FileReader()
+            let that = this
+            reader.onloadend = function(e) { 
+                that.render_img(e.target.result, that.target_canvas)
+            }
+            reader.readAsDataURL(newImg)
+        }
+    },
+    fps(newVal){
+        this.interval = 1000/newVal
+    }
+  }
+})
+</script>
+<style type="text/css">
+    .gradientBG{
+        background: #c2edf8;
+        background: -webkit-linear-gradient(to right, #74b5d3, #7eb8e7, #96bdcf);
+        background: linear-gradient(to right, #74b5d3, #7eb8e7, #96bdcf);
+    }
+</style>
