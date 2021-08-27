@@ -1,5 +1,21 @@
 let progress_in_total = 0
 let generated_images = []
+
+class Vector{
+    constructor(x, y){
+        this.x = x
+        this.y = y
+    }
+    add(v){
+        return new Vector(this.x + v.x, this.y + v.y)
+    }
+    dot(v){
+        return this.x*v.x + this.y*v.y
+    }
+    scale(s){
+        return new Vector(this.x * s, this.y * s)
+    }
+}
 //防止imagedata浅层拷贝
 //https://www.deanhan.cn/copy-imagedata.html
 function copyImageData(imagedata){
@@ -20,23 +36,11 @@ function cal_distance_pow(pointA, pointB){
 }
 //给定两点计算向量
 function cal_vector(pointA, pointB){
-    return {x: pointB.x - pointA.x , y: pointB.y - pointA.y}
-}
-//点乘
-function dot(vectorA, vectorB){
-    return vectorA.x*vectorB.x + vectorA.y*vectorB.y
-}
-//数乘向量
-function cal_scale_vector(scale, vector){
-    return {x: vector.x * scale, y: vector.y * scale}
-}
-//向量相加
-function vector_add(vectorA, vectorB){
-    return {x: vectorA.x+vectorB.x, y: vectorA.y + vectorB.y}
+    return new Vector(pointB.x - pointA.x , pointB.y - pointA.y)
 }
 //计算点到向量的最短距离
 function cal_distance_from_point_to_vector(point, vectorPointA, vectorPointB){
-    return Math.sqrt(cal_distance_pow(point, vectorPointA).toFixed(2) - Math.pow(dot(cal_vector(vectorPointA, vectorPointB), cal_vector(vectorPointA, point))/cal_distance(vectorPointA, vectorPointB), 2).toFixed(2))
+    return Math.sqrt(cal_distance_pow(point, vectorPointA).toFixed(2) - Math.pow(cal_vector(vectorPointA, vectorPointB).dot(cal_vector(vectorPointA, point))/cal_distance(vectorPointA, vectorPointB), 2).toFixed(2))
 }
 //***************************************
 //核心算法
@@ -52,32 +56,24 @@ function warp_image(output_img, original_image, warp_lines, original_lines, para
     {
         for(let px = 0; px < dest_size.width; px++){
             //特征线点的点与源图像计算出的点的位置的偏移量总和
-            D_sum = {x: 0, y: 0}
+            let D_sum = new Vector(0, 0)
             weight_sum = 0
-            let current_pixel = {x: px, y: py}
+            let current_pixel = new Vector(px, py)
             for(let li = 0; li<warp_lines.length; li++){
                 //计算当前像素在line上对应的u, v坐标
-                let u = dot(cal_vector(warp_lines[li].start, current_pixel), cal_vector(warp_lines[li].start, warp_lines[li].end))/cal_distance_pow(warp_lines[li].start, warp_lines[li].end)
+                let u = cal_vector(warp_lines[li].start, current_pixel).dot(cal_vector(warp_lines[li].start, warp_lines[li].end))/cal_distance_pow(warp_lines[li].start, warp_lines[li].end)
                 //计算垂直于line向量的向量
                 let temp = cal_vector(warp_lines[li].start, warp_lines[li].end)
-                let line_vector_vertical = {x: temp.y, y: -temp.x}
-                let v = dot(cal_vector(warp_lines[li].start, current_pixel), line_vector_vertical) / cal_distance(line_vector_vertical, {x: 0, y: 0})
-                
+                let line_vector_vertical = new Vector(temp.y, -temp.x)
+                let v = cal_vector(warp_lines[li].start, current_pixel).dot(line_vector_vertical) / cal_distance(line_vector_vertical, {x: 0, y: 0})
                 let original_line_vector = cal_vector(original_lines[li].start, original_lines[li].end)
-                let original_line_vector_vertical = {x: original_line_vector.y, y: -original_line_vector.x}
-                let x_prime = vector_add(
-                    original_lines[li].start,
-                    vector_add(
-                        cal_scale_vector(
-                            u,
-                            original_line_vector
-                        ),
-                        cal_scale_vector(
-                            v / cal_distance({x:0, y:0}, original_line_vector_vertical),
-                            original_line_vector_vertical
-                        )
-                    )    
-                )
+                let original_line_vector_vertical = new Vector(original_line_vector.y, -original_line_vector.x)
+                original_lines[li].start = new Vector(original_lines[li].start.x, original_lines[li].start.y)
+                let x_prime = 
+                    original_lines[li].start.add(
+                        original_line_vector.scale(u)
+                        .add(original_line_vector_vertical.scale(v / cal_distance(new Vector(0, 0), original_line_vector_vertical)))
+                    )
                 //防止越界
                 x_prime.x = x_prime.x > original_image.width - 1 ? original_image.width - 1 : x_prime.x
                 x_prime.y = x_prime.y > original_image.height - 1 ? original_image.height - 1 : x_prime.y
@@ -96,16 +92,16 @@ function warp_image(output_img, original_image, warp_lines, original_lines, para
                     ) / params.a + dis,
                     params.b
                 )
-                D_sum = vector_add(D_sum, cal_scale_vector(weight, D))
+                D_sum = D_sum.add(D.scale(weight))
                 weight_sum += weight
             }
             
-            let pixel_from_original_pos = vector_add(current_pixel, cal_scale_vector(1/weight_sum, D_sum))
+            let pixel_from_original_pos = current_pixel.add(D_sum.scale(1/weight_sum))
             pixel_from_original_pos.x = Math.round(pixel_from_original_pos.x)
             pixel_from_original_pos.y = Math.round(pixel_from_original_pos.y)
             //imagedata是一维数组，需要从二维的位置转到一维的位置，imagedata以以下格式存储：
             // r, g, b, a, r, g, b ,a ...
-            let pixel_pos = dest_size.width*py*4 + px * 4
+            let pixel_pos = dest_size.width * py * 4 + px * 4
             if(pixel_from_original_pos.x > original_image.width - 1 || pixel_from_original_pos.y > original_image.height - 1){
                 //图像越界取白色
                 temp_image_data.data[pixel_pos] = 255
