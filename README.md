@@ -1,7 +1,7 @@
 # feature-based-image-metamorphosis
 An inplementation of [Feature-based image metamorphosis](https://dl.acm.org/doi/10.1145/142920.134003) using HTML and JavaScript. The demo is available [here](https://6ckai.com/projects/image_morphing/).  
-![image](https://raw.githubusercontent.com/liuchengkai/feature-based-image-metamorphosis/master/docs/11.jpg)
-![image](https://raw.githubusercontent.com/liuchengkai/feature-based-image-metamorphosis/master/docs/12.jpg)
+![image](./docs/11.jpg)
+![image](./docs/12.jpg)
 # Features
 * The algorithm is run in a new tread using Web Workers in order not to block the UI rendering. 
 * The demo generates animation from source to target image.
